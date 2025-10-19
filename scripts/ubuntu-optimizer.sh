@@ -207,10 +207,10 @@ installations() {
     sleep 0.5
 
     ## Networking packages
-    sudo apt -y install apt-transport-https
+    sudo apt -y install apt-transport-https vnstat nload wireguard
 
     ## System utilities
-    sudo apt -y install apt-utils bash-completion busybox ca-certificates cron curl gnupg2 locales lsb-release nano preload screen software-properties-common ufw unzip vim wget xxd zip
+    sudo apt -y install apt-utils bash-completion busybox ca-certificates cron curl gnupg2 locales lsb-release nano preload screen software-properties-common ufw unzip vim wget xxd zip ncdu
 
     ## Programming and development tools
     sudo apt -y install autoconf automake bash-completion build-essential git libtool make pkg-config python3 python3-pip
@@ -219,7 +219,7 @@ installations() {
     sudo apt -y install bc binutils binutils-common binutils-x86-64-linux-gnu ubuntu-keyring haveged jq libsodium-dev libsqlite3-dev libssl-dev packagekit qrencode socat
 
     ## Miscellaneous
-    sudo apt -y install dialog htop net-tools
+    sudo apt -y install dialog btop net-tools 
 
     echo 
     green_msg 'Useful Packages Installed Succesfully.'
