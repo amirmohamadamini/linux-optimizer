@@ -193,7 +193,7 @@ installations() {
     sudo apt -q -y install apt-transport-https
 
     ## System utilities
-    sudo apt -q -y install apt-utils bash-completion busybox ca-certificates cron curl gnupg2 locales lsb-release nano preload screen software-properties-common ufw unzip vim wget xxd zip
+    sudo apt -q -y install apt-utils bash-completion busybox ca-certificates cron curl gnupg2 locales lsb-release nano preload screen software-properties-common ufw unzip vim wget xxd zip btop ncdu
 
     ## Programming and development tools
     sudo apt -q -y install autoconf automake bash-completion build-essential git libtool make pkg-config python3 python3-pip
@@ -202,7 +202,7 @@ installations() {
     sudo apt -q -y install bc binutils binutils-common binutils-x86-64-linux-gnu debian-keyring haveged jq libsodium-dev libsqlite3-dev libssl-dev packagekit qrencode socat
 
     ## Miscellaneous
-    sudo apt -q -y install dialog htop net-tools
+    sudo apt -q -y install dialog htop net-tools nload vnstat wireguard
 
     echo 
     green_msg 'Useful Packages Installed Succesfully.'
