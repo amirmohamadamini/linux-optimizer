@@ -219,7 +219,7 @@ installations() {
     sudo apt -y install bc binutils binutils-common binutils-x86-64-linux-gnu ubuntu-keyring haveged jq libsodium-dev libsqlite3-dev libssl-dev packagekit qrencode socat
 
     ## Miscellaneous
-    sudo apt -y install dialog btop net-tools 
+    sudo apt -y install dialog btop net-tools certbot
 
     echo 
     green_msg 'Useful Packages Installed Succesfully.'
