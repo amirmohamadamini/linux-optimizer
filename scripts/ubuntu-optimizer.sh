@@ -95,6 +95,90 @@ complete_update() {
     sleep 0.5
 }
 
+# Remove Snapd + all installed snaps (optional)
+remove_snapd_and_snaps() {
+  echo
+  yellow_msg 'Remove Snapd + ALL snap packages? (y/n)'
+  read -r choice
+  if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
+    yellow_msg 'Skipping Snap removal.'
+    echo
+    return 0
+  fi
+
+  red_msg 'WARNING: This will remove snap apps (microk8s, lxd, etc.) if installed.'
+  yellow_msg 'Type YES to continue:'
+  read -r confirm
+  if [[ "$confirm" != "YES" ]]; then
+    red_msg 'Canceled.'
+    echo
+    return 0
+  fi
+
+  echo yellow_msg 'Stopping snapd services...'
+  systemctl stop snapd.service snapd.socket snapd.seeded.service 2>/dev/null || true
+  systemctl disable snapd.service snapd.socket snapd.seeded.service 2>/dev/null || true
+  systemctl mask snapd.service snapd.socket snapd.seeded.service 2>/dev/null || true
+
+  if command -v snap >/dev/null 2>&1; then
+    echo yellow_msg 'Removing snap packages (apps first, base last)...'
+    snaps="$(snap list 2>/dev/null | awk 'NR>1 {print $1}' | sort -u)"
+
+    # 1) remove apps first (non-base)
+    for s in $snaps; do
+      case "$s" in
+        snapd|core|core18|core20|core22|core24|bare|gtk-common-themes|gnome-*) ;;
+        *)
+          echo yellow_msg "snap remove --purge $s"
+          snap remove --purge "$s" 2>/dev/null || true
+          ;;
+      esac
+    done
+
+    # 2) remove base/runtime snaps
+    for s in $snaps; do
+      case "$s" in
+        core|core18|core20|core22|core24|bare|gtk-common-themes|gnome-*)
+          echo yellow_msg "snap remove --purge $s"
+          snap remove --purge "$s" 2>/dev/null || true
+          ;;
+      esac
+    done
+
+    # 3) remove snapd snap last
+    if echo "$snaps" | grep -qx snapd; then
+      echo yellow_msg "snap remove --purge snapd"
+      snap remove --purge snapd 2>/dev/null || true
+    fi
+  fi
+
+  echo yellow_msg 'Purging snapd via APT...'
+  apt -y purge snapd 2>/dev/null || true
+  apt -y autoremove --purge 2>/dev/null || true
+  apt -y autoclean 2>/dev/null || true
+
+  echo yellow_msg 'Unmounting leftover /snap mounts...'
+  for m in $(mount | awk '$3 ~ "^/snap/" {print $3}' | sort -r); do
+    umount -l "$m" 2>/dev/null || true
+  done
+  umount -l /snap 2>/dev/null || true
+
+  echo yellow_msg 'Removing snap directories...'
+  rm -rf /snap /var/snap /var/lib/snapd /var/cache/snapd 2>/dev/null || true
+  rm -rf /root/snap /home/*/snap 2>/dev/null || true
+
+  echo yellow_msg 'Blocking snapd reinstall (apt pin)...'
+  mkdir -p /etc/apt/preferences.d
+  cat >/etc/apt/preferences.d/nosnap.pref <<'EOF'
+Package: snapd
+Pin: release a=*
+Pin-Priority: -10
+EOF
+
+  echo green_msg 'Snapd + snaps removed.'
+  echo
+}
+
 
 # Disable Terminal Ads
 disable_terminal_ads() {
@@ -823,6 +907,9 @@ main() {
             ufw_optimizations
             sleep 0.5
 
+            remove_snapd_and_snaps 
+            sleep 0.5
+
             echo 
             green_msg '========================='
             green_msg  'Done.'
@@ -888,6 +975,9 @@ main() {
             ;;
         6)
             complete_update
+            sleep 0.5
+
+            remove_snapd_and_snaps 
             sleep 0.5
 
             echo 
