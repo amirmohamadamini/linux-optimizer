@@ -1205,8 +1205,9 @@ install_docker() {
 
 
 # Pull Docker Hub images through the ArvanCloud mirror (Docker Hub refuses Iranian servers).
-# Running it again removes the mirror.
+# Running it again removes the mirror. With "on", it's only turned on, never removed.
 docker_mirror_arvan() {
+    local mode="$1"
     echo
     yellow_msg 'Configuring the ArvanCloud mirror for Docker Hub...'
     echo
@@ -1225,7 +1226,7 @@ docker_mirror_arvan() {
             '(.["registry-mirrors"] // []) | index($m) != null' "$DOCKER_DAEMON_JSON" >/dev/null; then
         green_msg 'Docker already pulls images through the ArvanCloud mirror.'
         echo
-        if ! ask_yes_no 'Remove it and pull from Docker Hub directly?'; then
+        if [ "$mode" = "on" ] || ! ask_yes_no 'Remove it and pull from Docker Hub directly?'; then
             rm -f "$tmp"
             return 0
         fi
@@ -1288,8 +1289,9 @@ restore_apt_sources() {
 
 # Change the APT repositories to the ArvanCloud mirror (fast inside Iran, works when the official mirrors are filtered).
 # https://www.arvancloud.ir/en/dev/linux-repository
-# Running it again restores the original repositories.
+# Running it again restores the original repositories. With "on", it's only turned on, never restored.
 apt_mirror_arvan() {
+    local mode="$1"
     echo
     yellow_msg 'Changing the APT repositories to the ArvanCloud mirror...'
     echo
@@ -1302,7 +1304,7 @@ apt_mirror_arvan() {
     if grep -qsF 'linux-optimizer: ArvanCloud mirror' "$main_file"; then
         green_msg 'APT already uses the ArvanCloud mirror.'
         echo
-        if [ -d "$APT_BACKUP_DIR" ] && ask_yes_no 'Restore the original APT repositories?'; then
+        if [ "$mode" != "on" ] && [ -d "$APT_BACKUP_DIR" ] && ask_yes_no 'Restore the original APT repositories?'; then
             restore_apt_sources
             apt_get update
             echo
@@ -1394,6 +1396,18 @@ apt_mirror_arvan() {
 }
 
 
+# All in one: APT mirror, Docker Hub mirror, then Docker (so Docker starts with the mirror and doesn't ask again).
+docker_arvan_all() {
+    apt_mirror_arvan on
+    sleep 0.5
+
+    docker_mirror_arvan on
+    sleep 0.5
+
+    install_docker
+}
+
+
 # Show the current state of the server
 show_status() {
     . /etc/os-release
@@ -1453,9 +1467,10 @@ show_menu() {
     green_msg '16 - Remove Snapd + ALL snap packages.'
     green_msg '17 - Remove Unneeded Packages (apport, landscape, lxd-installer, modemmanager, ...).'
     echo
-    green_msg '18 - Install Docker + Docker Compose.'
-    green_msg '19 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
-    green_msg '20 - Change the APT repositories to the ArvanCloud mirror. (Run again to restore)'
+    green_msg '18 - Install Docker with the ArvanCloud APT & Docker Hub mirrors. (19 + 20 + 21)'
+    green_msg '19 - Install Docker + Docker Compose.'
+    green_msg '20 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
+    green_msg '21 - Change the APT repositories to the ArvanCloud mirror. (Run again to restore)'
     echo
     green_msg 's  - Show Server Status.'
     red_msg 'q  - Exit.'
@@ -1665,18 +1680,24 @@ main() {
             done_msg
             ;;
         18)
-            install_docker
+            docker_arvan_all
             sleep 0.5
 
             done_msg
             ;;
         19)
-            docker_mirror_arvan
+            install_docker
             sleep 0.5
 
             done_msg
             ;;
         20)
+            docker_mirror_arvan
+            sleep 0.5
+
+            done_msg
+            ;;
+        21)
             apt_mirror_arvan
             sleep 0.5
 

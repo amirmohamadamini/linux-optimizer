@@ -111,20 +111,26 @@
     - `apport`, `whoopsie`, `popularity-contest`, `landscape-common`, `lxd-installer`, `modemmanager`, `pollinate`.
 
 
-15. Install `Docker` + `Docker Compose`:
+15. Install `Docker` with the ArvanCloud mirrors, all in one (first option of the Docker group):
+    - Ubuntu & Debian: change APT to the ArvanCloud mirror, use the ArvanCloud Docker Hub mirror, then install Docker.
+    - CentOS, AlmaLinux & Fedora: use the ArvanCloud Docker Hub mirror, then install Docker.
+    - The mirrors are set before Docker is installed, so Docker starts with them. Running it again never removes a mirror.
+
+
+16. Install `Docker` + `Docker Compose`:
     - From Docker's official repository (`docker-ce`, `buildx` & `compose` plugins). The signing key is checked against the official fingerprint.
     - `download.docker.com` blocks Iranian servers, so the ArvanCloud copy is tried next. If neither works, the distro's `docker.io` package can be installed instead _(Ubuntu & Debian)_.
     - Ports published with `docker run -p` bypass `UFW`. Use `-p 127.0.0.1:PORT:PORT` for ports that should stay private.
 
 
-16. Use the [ArvanCloud](https://www.arvancloud.ir) mirror for Docker Hub images (`https://docker.arvancloud.ir`):
+17. Use the [ArvanCloud](https://www.arvancloud.ir) mirror for Docker Hub images (`https://docker.arvancloud.ir`):
     - Docker Hub blocks Iranian servers. With the mirror, `docker pull nginx` works as usual.
     - Added to `registry-mirrors` in `/etc/docker/daemon.json`. Your other settings are kept. Original file is backed up at `/etc/docker/daemon.json.bak`.
     - Docker is reloaded, not restarted, so running containers keep running.
     - **Run the option again to remove the mirror.**
 
 
-17. Change the APT repositories to the [ArvanCloud mirror](https://www.arvancloud.ir/en/dev/linux-repository) _(Ubuntu & Debian)_:
+18. Change the APT repositories to the [ArvanCloud mirror](https://www.arvancloud.ir/en/dev/linux-repository) _(Ubuntu & Debian)_:
     - Faster inside Iran, and works when the official mirrors are filtered.
     - Written to `/etc/apt/sources.list.d/ubuntu.sources` (or `debian.sources`), including security updates. Other repositories (Nginx, Docker, XanMod) are not touched.
     - Original sources are backed up at `/etc/apt/linux-optimizer-sources-backup`. If `apt update` fails on the mirror, they are restored automatically.
@@ -132,7 +138,7 @@
     - **Run the option again to restore the original repositories.**
 
 
-18. Show Server Status (`s` in the menu): OS, kernel, virtualization, RAM, SWAP, BBR, limits, UFW, Fail2ban, Nginx, Docker, mirrors.
+19. Show Server Status (`s` in the menu): OS, kernel, virtualization, RAM, SWAP, BBR, limits, UFW, Fail2ban, Nginx, Docker, mirrors.
 
     
 **Reboot at the end is recommended.**

@@ -733,8 +733,9 @@ install_docker() {
 
 
 # Pull Docker Hub images through the ArvanCloud mirror (Docker Hub refuses Iranian servers).
-# Running it again removes the mirror.
+# Running it again removes the mirror. With "on", it's only turned on, never removed.
 docker_mirror_arvan() {
+    local mode="$1"
     echo
     yellow_msg 'Configuring the ArvanCloud mirror for Docker Hub...'
     echo
@@ -753,7 +754,7 @@ docker_mirror_arvan() {
             '(.["registry-mirrors"] // []) | index($m) != null' "$DOCKER_DAEMON_JSON" >/dev/null; then
         green_msg 'Docker already pulls images through the ArvanCloud mirror.'
         echo
-        if ! ask_yes_no 'Remove it and pull from Docker Hub directly?'; then
+        if [ "$mode" = "on" ] || ! ask_yes_no 'Remove it and pull from Docker Hub directly?'; then
             rm -f "$tmp"
             return 0
         fi
@@ -805,6 +806,15 @@ docker_mirror_arvan() {
 }
 
 
+# All in one: Docker Hub mirror, then Docker (so Docker starts with the mirror and doesn't ask again).
+docker_arvan_all() {
+    docker_mirror_arvan on
+    sleep 0.5
+
+    install_docker
+}
+
+
 # Show the Menu
 show_menu() {
     echo 
@@ -826,8 +836,9 @@ show_menu() {
     echo 
     green_msg '11 - Install & Optimize UFW.'
     echo 
-    green_msg '12 - Install Docker + Docker Compose.'
-    green_msg '13 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
+    green_msg '12 - Install Docker with the ArvanCloud Docker Hub mirror. (13 + 14)'
+    green_msg '13 - Install Docker + Docker Compose.'
+    green_msg '14 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
     echo 
     red_msg 'q - Exit.'
     echo 
@@ -1009,7 +1020,7 @@ main() {
             ask_reboot
             ;;
         12)
-            install_docker
+            docker_arvan_all
             sleep 0.5
 
             echo 
@@ -1019,6 +1030,16 @@ main() {
 
             ;;
         13)
+            install_docker
+            sleep 0.5
+
+            echo 
+            green_msg '========================='
+            green_msg  'Done.'
+            green_msg '========================='
+
+            ;;
+        14)
             docker_mirror_arvan
             sleep 0.5
 
