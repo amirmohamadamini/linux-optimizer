@@ -827,27 +827,31 @@ show_menu() {
     echo 
     yellow_msg 'Choose One Option: '
     echo 
+    yellow_msg 'Presets:'
     green_msg '1  - Apply Everything. (RECOMMENDED)'
-    echo 
     green_msg '2  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits + UFW'
     green_msg '3  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits'
+    green_msg '4  - Optimize the Network, SSH & System Limits only. (No updates or installs)'
     echo 
-    green_msg '4  - Complete Update & Clean the OS.'
-    green_msg '5  - Install Useful Packages.'
-    green_msg '6  - Make SWAP (2Gb).'
-    green_msg '7  - Optimize the Network, SSH & System Limits.'
+    yellow_msg 'System:'
+    green_msg '5  - Complete Update & Clean the OS.'
+    green_msg '6  - Install Useful Packages.'
+    green_msg '7  - Make SWAP (2Gb).'
+    green_msg '8  - Optimize the System Limits.'
     echo 
-    green_msg '8  - Optimize the Network settings.'
-    green_msg '9  - Optimize the SSH settings.'
-    green_msg '10 - Optimize the System Limits.'
+    yellow_msg 'Network:'
+    green_msg '9  - Optimize the Network settings. (sysctl, BBR)'
+    green_msg '10 - Install & Optimize UFW.'
     echo 
-    green_msg '11 - Install & Optimize UFW.'
+    yellow_msg 'SSH:'
+    green_msg '11 - Optimize the SSH settings.'
     echo 
+    yellow_msg 'Docker:'
     green_msg '12 - Install Docker with the ArvanCloud Docker Hub mirror. (13 + 14)'
     green_msg '13 - Install Docker + Docker Compose.'
     green_msg '14 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
     echo 
-    red_msg 'q - Exit.'
+    red_msg 'q  - Exit.'
     echo 
 }
 
@@ -925,6 +929,26 @@ main() {
             ask_reboot
             ;;
         4)
+            sysctl_optimizations
+            sleep 0.5
+
+            remove_old_ssh_conf
+            sleep 0.5
+    
+            update_sshd_conf
+            sleep 0.5
+
+            limits_optimizations
+            sleep 0.5
+
+            echo 
+            green_msg '========================='
+            green_msg  'Done.'
+            green_msg '========================='
+
+            ask_reboot
+            ;;
+        5)
             complete_update
             sleep 0.5
 
@@ -936,7 +960,7 @@ main() {
             ask_reboot
             ;;
             
-        5)
+        6)
             complete_update
             installations
             enable_packages
@@ -949,7 +973,7 @@ main() {
 
             ask_reboot
             ;;
-        6)
+        7)
             swap_maker
             sleep 0.5
 
@@ -960,16 +984,7 @@ main() {
 
             ask_reboot
             ;;
-        7)
-            sysctl_optimizations
-            sleep 0.5
-
-            remove_old_ssh_conf
-            sleep 0.5
-    
-            update_sshd_conf
-            sleep 0.5
-
+        8)
             limits_optimizations
             sleep 0.5
 
@@ -980,21 +995,8 @@ main() {
 
             ask_reboot
             ;;
-        8)
-            sysctl_optimizations
-            sleep 0.5
-
-            echo 
-            green_msg '========================='
-            green_msg  'Done.'
-            green_msg '========================='
-
-            ;;
         9)
-            remove_old_ssh_conf
-            sleep 0.5
-    
-            update_sshd_conf
+            sysctl_optimizations
             sleep 0.5
 
             echo 
@@ -1004,17 +1006,6 @@ main() {
 
             ;;
         10)
-            limits_optimizations
-            sleep 0.5
-
-            echo 
-            green_msg '========================='
-            green_msg  'Done.'
-            green_msg '========================='
-
-            ask_reboot
-            ;;
-        11)
             find_ssh_port
             ufw_optimizations
             sleep 0.5
@@ -1025,6 +1016,19 @@ main() {
             green_msg '========================='
 
             ask_reboot
+            ;;
+        11)
+            remove_old_ssh_conf
+            sleep 0.5
+    
+            update_sshd_conf
+            sleep 0.5
+
+            echo 
+            green_msg '========================='
+            green_msg  'Done.'
+            green_msg '========================='
+
             ;;
         12)
             docker_arvan_all

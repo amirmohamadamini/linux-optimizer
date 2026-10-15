@@ -1443,34 +1443,41 @@ show_menu() {
     echo
     yellow_msg 'Choose One Option: '
     echo
+    yellow_msg 'Presets:'
     green_msg '1  - Apply Everything + XanMod Kernel. (RECOMMENDED)'
-    echo
-    green_msg '2  - Install XanMod Kernel.'
-    echo
+    green_msg '2  - Optimize the Network, SSH & System Limits only. (No updates or installs)'
     green_msg '3  - Complete Update + Useful Packages + Make SWAP + Optimize Network, SSH & System Limits + UFW + Journal 100MB'
     green_msg '4  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits + UFW'
     green_msg '5  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits'
     echo
+    yellow_msg 'System:'
     green_msg '6  - Complete Update & Clean the OS.'
-    green_msg '7  - Install Useful Packages.'
-    green_msg '8  - Make SWAP (2Gb). (Skipped if SWAP already exists)'
-    green_msg '9  - Optimize the Network, SSH & System Limits.'
+    green_msg '7  - Change the APT repositories to the ArvanCloud mirror. (Run again to restore)'
+    green_msg '8  - Install Useful Packages.'
+    green_msg '9  - Make SWAP (2Gb). (Skipped if SWAP already exists)'
+    green_msg '10 - Optimize the System Limits.'
+    green_msg '11 - Install XanMod Kernel.'
     echo
-    green_msg '10 - Optimize the Network settings.'
-    green_msg '11 - Optimize the SSH settings.'
-    green_msg '12 - Optimize the System Limits.'
-    echo
+    yellow_msg 'Network:'
+    green_msg '12 - Optimize the Network settings. (sysctl, BBR)'
     green_msg '13 - Install & Optimize UFW.'
-    green_msg '14 - Install Fail2ban (SSH brute-force protection).'
-    green_msg '15 - Install Nginx from the official nginx.org repository.'
     echo
-    green_msg '16 - Remove Snapd + ALL snap packages.'
-    green_msg '17 - Remove Unneeded Packages (apport, landscape, lxd-installer, modemmanager, ...).'
+    yellow_msg 'SSH:'
+    green_msg '14 - Optimize SSH + Install Fail2ban. (15 + 16)'
+    green_msg '15 - Optimize the SSH settings.'
+    green_msg '16 - Install Fail2ban (SSH brute-force protection).'
     echo
-    green_msg '18 - Install Docker with the ArvanCloud APT & Docker Hub mirrors. (19 + 20 + 21)'
+    yellow_msg 'Nginx:'
+    green_msg '17 - Install Nginx from the official nginx.org repository.'
+    echo
+    yellow_msg 'Docker:'
+    green_msg '18 - Install Docker with the ArvanCloud APT & Docker Hub mirrors. (7 + 19 + 20)'
     green_msg '19 - Install Docker + Docker Compose.'
     green_msg '20 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
-    green_msg '21 - Change the APT repositories to the ArvanCloud mirror. (Run again to restore)'
+    echo
+    yellow_msg 'Cleanup:'
+    green_msg '21 - Remove Snapd + ALL snap packages.'
+    green_msg '22 - Remove Unneeded Packages (apport, landscape, lxd-installer, modemmanager, ...).'
     echo
     green_msg 's  - Show Server Status.'
     red_msg 'q  - Exit.'
@@ -1508,10 +1515,13 @@ main() {
             ask_reboot
             ;;
         2)
-            complete_update
+            sysctl_optimizations
             sleep 0.5
 
-            install_xanmod
+            update_sshd_conf
+            sleep 0.5
+
+            limits_optimizations
             sleep 0.5
 
             done_msg
@@ -1599,6 +1609,12 @@ main() {
             ask_reboot
             ;;
         7)
+            apt_mirror_arvan
+            sleep 0.5
+
+            done_msg
+            ;;
+        8)
             complete_update
             sleep 0.5
 
@@ -1609,43 +1625,34 @@ main() {
             done_msg
             ask_reboot
             ;;
-        8)
+        9)
             swap_maker
             sleep 0.5
 
             done_msg
             ;;
-        9)
-            sysctl_optimizations
-            sleep 0.5
-
-            update_sshd_conf
-            sleep 0.5
-
+        10)
             limits_optimizations
             sleep 0.5
 
             done_msg
             ask_reboot
-            ;;
-        10)
-            sysctl_optimizations
-            sleep 0.5
-
-            done_msg
             ;;
         11)
-            update_sshd_conf
+            complete_update
             sleep 0.5
 
-            done_msg
-            ;;
-        12)
-            limits_optimizations
+            install_xanmod
             sleep 0.5
 
             done_msg
             ask_reboot
+            ;;
+        12)
+            sysctl_optimizations
+            sleep 0.5
+
+            done_msg
             ;;
         13)
             find_ssh_port
@@ -1655,6 +1662,9 @@ main() {
             done_msg
             ;;
         14)
+            update_sshd_conf
+            sleep 0.5
+
             find_ssh_port
             install_fail2ban
             sleep 0.5
@@ -1662,19 +1672,20 @@ main() {
             done_msg
             ;;
         15)
-            install_nginx
+            update_sshd_conf
             sleep 0.5
 
             done_msg
             ;;
         16)
-            remove_snapd
+            find_ssh_port
+            install_fail2ban
             sleep 0.5
 
             done_msg
             ;;
         17)
-            remove_bloat
+            install_nginx
             sleep 0.5
 
             done_msg
@@ -1698,7 +1709,13 @@ main() {
             done_msg
             ;;
         21)
-            apt_mirror_arvan
+            remove_snapd
+            sleep 0.5
+
+            done_msg
+            ;;
+        22)
+            remove_bloat
             sleep 0.5
 
             done_msg

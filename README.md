@@ -3,8 +3,8 @@
 ## This Bash script automates the optimization of your Linux server.
 #### Notes:
  1. This script is designed for execution on Linux server environments, including VPS, VDS, Dedicated, and Bare Metal systems. It is not recommended for use on Linux desktop environments.
- 2. Modifying the kernel (options 1 and 2) may result in removing or resetting some GPU drivers.
- 3. Some VMs do not support kernel changes (options 1 and 2). Installing XanMod could cause the VM to break. Please be cautious and test beforehand.
+ 2. Modifying the kernel (options 1 and 11) may result in removing or resetting some GPU drivers.
+ 3. Some VMs do not support kernel changes (options 1 and 11). Installing XanMod could cause the VM to break. Please be cautious and test beforehand.
 
 ### It performs the following tasks:
        
@@ -172,13 +172,77 @@ wget "https://raw.githubusercontent.com/amirmohamadamini/linux-optimizer/refs/he
 
 
 
-## Menu Image
-### Debian & Ubuntu:
-![debian-based-menu](https://github.com/hawshemi/Linux-Optimizer/assets/16742123/3604470e-48ed-403d-a753-143dc934f6fd)
+## Menu
+### Ubuntu & Debian _(Debian has no `Cleanup` section)_:
+```
+Presets:
+1  - Apply Everything + XanMod Kernel. (RECOMMENDED)
+2  - Optimize the Network, SSH & System Limits only. (No updates or installs)
+3  - Complete Update + Useful Packages + Make SWAP + Optimize Network, SSH & System Limits + UFW + Journal 100MB
+4  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits + UFW
+5  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits
+
+System:
+6  - Complete Update & Clean the OS.
+7  - Change the APT repositories to the ArvanCloud mirror. (Run again to restore)
+8  - Install Useful Packages.
+9  - Make SWAP (2Gb). (Skipped if SWAP already exists)
+10 - Optimize the System Limits.
+11 - Install XanMod Kernel.
+
+Network:
+12 - Optimize the Network settings. (sysctl, BBR)
+13 - Install & Optimize UFW.
+
+SSH:
+14 - Optimize SSH + Install Fail2ban. (15 + 16)
+15 - Optimize the SSH settings.
+16 - Install Fail2ban (SSH brute-force protection).
+
+Nginx:
+17 - Install Nginx from the official nginx.org repository.
+
+Docker:
+18 - Install Docker with the ArvanCloud APT & Docker Hub mirrors. (7 + 19 + 20)
+19 - Install Docker + Docker Compose.
+20 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)
+
+Cleanup:
+21 - Remove Snapd + ALL snap packages.
+22 - Remove Unneeded Packages (apport, landscape, lxd-installer, modemmanager, ...).
+
+s  - Show Server Status.
+q  - Exit.
+```
 
 ### CentOS, AlmaLinux & Fedora:
-![rhel-based-menu](https://github.com/hawshemi/Linux-Optimizer/assets/16742123/07099e64-3864-425f-83e2-cda1e57d5b62)
+```
+Presets:
+1  - Apply Everything. (RECOMMENDED)
+2  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits + UFW
+3  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits
+4  - Optimize the Network, SSH & System Limits only. (No updates or installs)
 
+System:
+5  - Complete Update & Clean the OS.
+6  - Install Useful Packages.
+7  - Make SWAP (2Gb).
+8  - Optimize the System Limits.
+
+Network:
+9  - Optimize the Network settings. (sysctl, BBR)
+10 - Install & Optimize UFW.
+
+SSH:
+11 - Optimize the SSH settings.
+
+Docker:
+12 - Install Docker with the ArvanCloud Docker Hub mirror. (13 + 14)
+13 - Install Docker + Docker Compose.
+14 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)
+
+q  - Exit.
+```
 
 
 ## Disclaimer
