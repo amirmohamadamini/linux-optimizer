@@ -29,6 +29,8 @@ SSH_PORT=""
 SSH_PATH="/etc/ssh/sshd_config"
 SWAP_PATH="/swapfile"
 SWAP_SIZE=2G
+DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
+ARVAN_DOCKER_MIRROR="https://docker.arvancloud.ir"
 
 
 # Root
@@ -627,6 +629,182 @@ ufw_optimizations() {
 }
 
 
+## Ask a y/n question. Returns 0 for yes.
+ask_yes_no() {
+    local answer
+    while true; do
+        yellow_msg "$1 (y/n)"
+        ## No more input (closed SSH session, piped input): treat as "no" instead of looping forever.
+        read -r answer || { echo; return 1; }
+        echo
+        case "$answer" in
+            y|Y) return 0 ;;
+            n|N) return 1 ;;
+        esac
+    done
+}
+
+
+## Keep the very first backup, so running the script again doesn't overwrite the original file.
+backup_once() {
+    if [ -e "$1" ] && [ ! -e "$1.bak" ]; then
+        cp -pL "$1" "$1.bak"
+        yellow_msg "Default $1 saved. Directory: $1.bak"
+    fi
+}
+
+
+# Install Docker Engine + Compose
+# https://docs.docker.com/engine/install/
+install_docker() {
+    echo
+    yellow_msg 'Installing Docker...'
+    echo
+    sleep 0.5
+
+    if command -v docker >/dev/null 2>&1; then
+        green_msg "Docker is already installed: $(docker --version 2>/dev/null)"
+        systemctl enable --now docker >/dev/null 2>&1
+        echo
+        return 0
+    fi
+
+    . /etc/os-release
+    local distro base="" candidate tmp_key="/tmp/docker_signing.key" tmp_repo="/tmp/docker-ce.repo" gnupg_tmp
+    case "$ID" in
+        fedora) distro="fedora" ;;
+        rhel)   distro="rhel" ;;
+        *)      distro="centos" ;;
+    esac
+
+    ## download.docker.com refuses Iranian servers (HTTP 403), so the ArvanCloud copy is tried next.
+    ## Either way the signing key must be Docker's official one.
+    for candidate in "https://download.docker.com/linux/$distro" "https://mirror.arvancloud.ir/docker-ce/linux/$distro"; do
+        curl -fsS --max-time 20 -o "$tmp_repo" "$candidate/docker-ce.repo" && grep -q '^\[docker-ce-stable\]' "$tmp_repo" || continue
+        curl -fsSL --max-time 30 -o "$tmp_key" "$candidate/gpg" && [ -s "$tmp_key" ] || continue
+        gnupg_tmp=$(mktemp -d)
+        if GNUPGHOME="$gnupg_tmp" gpg --dry-run --quiet --no-keyring --import --import-options import-show \
+                "$tmp_key" 2>/dev/null | grep -q '060A61C51B558A7F742B77AAC52FEB6B621E9F35'; then
+            base="$candidate"
+            rm -rf "$gnupg_tmp"
+            break
+        fi
+        red_msg "The Docker signing key from $candidate does not match the official fingerprint."
+        rm -rf "$gnupg_tmp"
+    done
+
+    if [ -z "$base" ]; then
+        red_msg "Docker's repository is not reachable from this server (download.docker.com blocks Iranian servers). Skipping."
+        echo
+        rm -f "$tmp_key" "$tmp_repo"
+        return 1
+    fi
+
+    rpm --import "$tmp_key"
+    sed "s|https://download.docker.com/linux/$distro|$base|g" "$tmp_repo" > /etc/yum.repos.d/docker-ce.repo
+    rm -f "$tmp_key" "$tmp_repo"
+
+    if ! dnf -y install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        red_msg 'Installing Docker failed. If podman or buildah is installed, it may conflict: dnf remove podman buildah'
+        echo
+        return 1
+    fi
+
+    systemctl enable --now containerd docker >/dev/null 2>&1
+    if ! docker info >/dev/null 2>&1; then
+        red_msg 'Docker is installed, but did not start. Check: journalctl -u docker'
+        echo
+        return 1
+    fi
+
+    echo
+    green_msg "$(docker --version) Installed from $base"
+    docker compose version >/dev/null 2>&1 && green_msg "$(docker compose version)"
+    yellow_msg 'Note: ports published with "docker run -p" bypass UFW. Use -p 127.0.0.1:PORT:PORT for ports only a local proxy should reach.'
+    echo
+
+    ## Docker Hub blocks Iranian servers too. Its own repository being blocked is a good hint.
+    if [ "$base" != "https://download.docker.com/linux/$distro" ] && ! grep -qsF "$ARVAN_DOCKER_MIRROR" "$DOCKER_DAEMON_JSON" \
+            && ask_yes_no 'Docker Hub blocks Iranian servers too. Pull images through the ArvanCloud mirror?'; then
+        docker_mirror_arvan
+    fi
+    sleep 0.5
+}
+
+
+# Pull Docker Hub images through the ArvanCloud mirror (Docker Hub refuses Iranian servers).
+# Running it again removes the mirror.
+docker_mirror_arvan() {
+    echo
+    yellow_msg 'Configuring the ArvanCloud mirror for Docker Hub...'
+    echo
+    sleep 0.5
+
+    command -v jq >/dev/null 2>&1 || dnf -y install jq
+    if [ -s "$DOCKER_DAEMON_JSON" ] && ! jq empty "$DOCKER_DAEMON_JSON" >/dev/null 2>&1; then
+        red_msg "$DOCKER_DAEMON_JSON is not valid JSON. Fix it first. Skipping."
+        echo
+        return 1
+    fi
+
+    local tmp code done_text
+    tmp=$(mktemp)
+    if [ -s "$DOCKER_DAEMON_JSON" ] && jq -e --arg m "$ARVAN_DOCKER_MIRROR" \
+            '(.["registry-mirrors"] // []) | index($m) != null' "$DOCKER_DAEMON_JSON" >/dev/null; then
+        green_msg 'Docker already pulls images through the ArvanCloud mirror.'
+        echo
+        if ! ask_yes_no 'Remove it and pull from Docker Hub directly?'; then
+            rm -f "$tmp"
+            return 0
+        fi
+        jq --arg m "$ARVAN_DOCKER_MIRROR" \
+            '.["registry-mirrors"] -= [$m] | if .["registry-mirrors"] == [] then del(.["registry-mirrors"]) else . end' \
+            "$DOCKER_DAEMON_JSON" > "$tmp"
+        done_text='ArvanCloud mirror removed. Images come from Docker Hub again.'
+    else
+        ## A registry answers /v2/ with 200, or 401 when it wants a token.
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$ARVAN_DOCKER_MIRROR/v2/")
+        if [ "$code" != 200 ] && [ "$code" != 401 ]; then
+            red_msg "$ARVAN_DOCKER_MIRROR is not reachable (HTTP $code). Skipping."
+            echo
+            rm -f "$tmp"
+            return 1
+        fi
+        mkdir -p /etc/docker
+        backup_once "$DOCKER_DAEMON_JSON"
+        ## Keep the other settings and mirrors, put ArvanCloud first.
+        { [ -s "$DOCKER_DAEMON_JSON" ] && cat "$DOCKER_DAEMON_JSON" || echo '{}'; } \
+            | jq --arg m "$ARVAN_DOCKER_MIRROR" '.["registry-mirrors"] = ([$m] + ((.["registry-mirrors"] // []) - [$m]))' > "$tmp"
+        done_text="Docker Hub images are now pulled through $ARVAN_DOCKER_MIRROR"
+    fi
+
+    if command -v dockerd >/dev/null 2>&1 && dockerd --help 2>&1 | grep -q -- '--validate' \
+            && ! dockerd --validate --config-file "$tmp" >/dev/null 2>&1; then
+        red_msg "The new $DOCKER_DAEMON_JSON is rejected by Docker. No changes made."
+        echo
+        rm -f "$tmp"
+        return 1
+    fi
+    cat "$tmp" > "$DOCKER_DAEMON_JSON"
+    chmod 644 "$DOCKER_DAEMON_JSON"
+    rm -f "$tmp"
+
+    ## registry-mirrors can be reloaded live, so running containers are not restarted.
+    if systemctl is-active --quiet docker; then
+        systemctl reload docker
+        sleep 1
+        yellow_msg "Docker mirrors: $(docker info --format '{{range .RegistryConfig.Mirrors}}{{.}} {{end}}' 2>/dev/null)"
+    else
+        yellow_msg 'Docker is not running. The setting is used when it starts.'
+    fi
+
+    echo
+    green_msg "$done_text"
+    echo
+    sleep 0.5
+}
+
+
 # Show the Menu
 show_menu() {
     echo 
@@ -647,6 +825,9 @@ show_menu() {
     green_msg '10 - Optimize the System Limits.'
     echo 
     green_msg '11 - Install & Optimize UFW.'
+    echo 
+    green_msg '12 - Install Docker + Docker Compose.'
+    green_msg '13 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
     echo 
     red_msg 'q - Exit.'
     echo 
@@ -826,6 +1007,26 @@ main() {
             green_msg '========================='
 
             ask_reboot
+            ;;
+        12)
+            install_docker
+            sleep 0.5
+
+            echo 
+            green_msg '========================='
+            green_msg  'Done.'
+            green_msg '========================='
+
+            ;;
+        13)
+            docker_mirror_arvan
+            sleep 0.5
+
+            echo 
+            green_msg '========================='
+            green_msg  'Done.'
+            green_msg '========================='
+
             ;;
         q)
             exit 0

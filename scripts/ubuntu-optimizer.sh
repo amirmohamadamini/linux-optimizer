@@ -32,6 +32,9 @@ SSH_PATH="/etc/ssh/sshd_config"
 SSH_DROPIN="/etc/ssh/sshd_config.d/01-linux-optimizer.conf"
 SWAP_PATH="/swapfile"
 SWAP_SIZE_MB=2048
+DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
+ARVAN_DOCKER_MIRROR="https://docker.arvancloud.ir"
+APT_BACKUP_DIR="/etc/apt/linux-optimizer-sources-backup"
 REMOVE_SNAP=0
 
 ## Never stop for dpkg config-file questions or the needrestart dialog.
@@ -184,7 +187,7 @@ fix_old_xanmod_repo() {
 }
 
 
-# Update & Upgrade & Remove & Clean
+# Update & Upgrade & Remove & Clean. Optional: journal size in MB.
 complete_update() {
     echo
     yellow_msg 'Updating the System... (This can take a while.)'
@@ -200,7 +203,7 @@ complete_update() {
     apt_get autoclean
     apt_get clean
 
-    limit_journal
+    limit_journal "$1"
 
     echo
     green_msg 'System Updated & Cleaned Successfully.'
@@ -209,17 +212,18 @@ complete_update() {
 }
 
 
-# Cap the systemd journal, so logs can't fill up a small disk.
+# Cap the systemd journal, so logs can't fill up a small disk. Size in MB (default 200).
 limit_journal() {
+    local size="${1:-200}"
     mkdir -p /etc/systemd/journald.conf.d
-    cat > /etc/systemd/journald.conf.d/99-linux-optimizer.conf <<'EOF'
+    cat > /etc/systemd/journald.conf.d/99-linux-optimizer.conf <<EOF
 [Journal]
-SystemMaxUse=200M
+SystemMaxUse=${size}M
 EOF
     systemctl restart systemd-journald >/dev/null 2>&1
-    journalctl --vacuum-size=200M >/dev/null 2>&1
+    journalctl --vacuum-size="${size}M" >/dev/null 2>&1
 
-    green_msg 'Journal logs limited to 200MB.'
+    green_msg "Journal logs limited to ${size}MB."
 }
 
 
@@ -1105,6 +1109,291 @@ install_nginx() {
 }
 
 
+# Install Docker Engine + Compose
+# https://docs.docker.com/engine/install/
+install_docker() {
+    echo
+    yellow_msg 'Installing Docker...'
+    echo
+    sleep 0.5
+
+    if command -v docker >/dev/null 2>&1; then
+        green_msg "Docker is already installed: $(docker --version 2>/dev/null)"
+        systemctl enable --now docker >/dev/null 2>&1
+        echo
+        return 0
+    fi
+
+    . /etc/os-release
+    local arch base="" candidate installed=0 tmp_key="/tmp/docker_signing.key" gnupg_tmp
+    arch=$(dpkg --print-architecture)
+
+    apt_get update
+    apt_install_available ca-certificates curl gnupg
+
+    ## download.docker.com refuses Iranian servers (HTTP 403), so the ArvanCloud copy is tried next.
+    ## Either way the signing key must be Docker's official one.
+    install -m 0755 -d /etc/apt/keyrings
+    for candidate in "https://download.docker.com/linux/$ID" "https://mirror.arvancloud.ir/docker-ce/linux/$ID"; do
+        curl -fsS --max-time 20 -o /dev/null "$candidate/dists/$VERSION_CODENAME/Release" || continue
+        curl -fsSL --max-time 30 -o "$tmp_key" "$candidate/gpg" && [ -s "$tmp_key" ] || continue
+        gpg --dearmor --yes -o /etc/apt/keyrings/docker.gpg "$tmp_key"
+        gnupg_tmp=$(mktemp -d)
+        if GNUPGHOME="$gnupg_tmp" gpg --dry-run --quiet --no-keyring --import --import-options import-show \
+                /etc/apt/keyrings/docker.gpg 2>/dev/null | grep -q '9DC858229FC7DD38854AE2D88D81803C0EBFCD88'; then
+            base="$candidate"
+            rm -rf "$gnupg_tmp"
+            break
+        fi
+        red_msg "The Docker signing key from $candidate does not match the official fingerprint."
+        rm -rf "$gnupg_tmp" /etc/apt/keyrings/docker.gpg
+    done
+    rm -f "$tmp_key"
+
+    if [ -n "$base" ]; then
+        chmod a+r /etc/apt/keyrings/docker.gpg
+        echo "deb [arch=$arch signed-by=/etc/apt/keyrings/docker.gpg] $base $VERSION_CODENAME stable" > /etc/apt/sources.list.d/docker.list
+        apt_get update
+        if apt_get install docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+            installed=1
+            green_msg "Installed from $base"
+        else
+            red_msg "Installing from $base failed."
+            rm -f /etc/apt/sources.list.d/docker.list
+        fi
+    fi
+
+    ## No Docker repository for this release, or it's blocked: the distro's package is older, but works.
+    if [ "$installed" = 0 ]; then
+        yellow_msg "Docker's repository is not usable from this server (download.docker.com blocks Iranian servers)."
+        if ! ask_yes_no "Install the distro's Docker package (docker.io) instead?"; then
+            echo
+            return 1
+        fi
+        apt_get update
+        case "$ID" in
+            ubuntu) apt_install_available docker.io docker-compose-v2 docker-buildx ;;
+            *)      apt_install_available docker.io docker-compose docker-buildx ;;
+        esac
+        if ! is_installed docker.io; then
+            red_msg 'Docker could not be installed.'
+            echo
+            return 1
+        fi
+    fi
+
+    systemctl enable --now containerd docker >/dev/null 2>&1
+    if ! docker info >/dev/null 2>&1; then
+        red_msg 'Docker is installed, but did not start. Check: journalctl -u docker'
+        echo
+        return 1
+    fi
+
+    echo
+    green_msg "$(docker --version) Installed."
+    docker compose version >/dev/null 2>&1 && green_msg "$(docker compose version)"
+    yellow_msg 'Note: ports published with "docker run -p" bypass UFW. Use -p 127.0.0.1:PORT:PORT for ports only Nginx should reach.'
+    echo
+
+    ## Docker Hub blocks Iranian servers too. Its own repository being blocked is a good hint.
+    if [ "$base" != "https://download.docker.com/linux/$ID" ] && ! grep -qsF "$ARVAN_DOCKER_MIRROR" "$DOCKER_DAEMON_JSON" \
+            && ask_yes_no 'Docker Hub blocks Iranian servers too. Pull images through the ArvanCloud mirror?'; then
+        docker_mirror_arvan
+    fi
+    sleep 0.5
+}
+
+
+# Pull Docker Hub images through the ArvanCloud mirror (Docker Hub refuses Iranian servers).
+# Running it again removes the mirror.
+docker_mirror_arvan() {
+    echo
+    yellow_msg 'Configuring the ArvanCloud mirror for Docker Hub...'
+    echo
+    sleep 0.5
+
+    command -v jq >/dev/null 2>&1 || apt_install_available jq
+    if [ -s "$DOCKER_DAEMON_JSON" ] && ! jq empty "$DOCKER_DAEMON_JSON" >/dev/null 2>&1; then
+        red_msg "$DOCKER_DAEMON_JSON is not valid JSON. Fix it first. Skipping."
+        echo
+        return 1
+    fi
+
+    local tmp code done_text
+    tmp=$(mktemp)
+    if [ -s "$DOCKER_DAEMON_JSON" ] && jq -e --arg m "$ARVAN_DOCKER_MIRROR" \
+            '(.["registry-mirrors"] // []) | index($m) != null' "$DOCKER_DAEMON_JSON" >/dev/null; then
+        green_msg 'Docker already pulls images through the ArvanCloud mirror.'
+        echo
+        if ! ask_yes_no 'Remove it and pull from Docker Hub directly?'; then
+            rm -f "$tmp"
+            return 0
+        fi
+        jq --arg m "$ARVAN_DOCKER_MIRROR" \
+            '.["registry-mirrors"] -= [$m] | if .["registry-mirrors"] == [] then del(.["registry-mirrors"]) else . end' \
+            "$DOCKER_DAEMON_JSON" > "$tmp"
+        done_text='ArvanCloud mirror removed. Images come from Docker Hub again.'
+    else
+        ## A registry answers /v2/ with 200, or 401 when it wants a token.
+        code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$ARVAN_DOCKER_MIRROR/v2/")
+        if [ "$code" != 200 ] && [ "$code" != 401 ]; then
+            red_msg "$ARVAN_DOCKER_MIRROR is not reachable (HTTP $code). Skipping."
+            echo
+            rm -f "$tmp"
+            return 1
+        fi
+        mkdir -p /etc/docker
+        backup_once "$DOCKER_DAEMON_JSON"
+        ## Keep the other settings and mirrors, put ArvanCloud first.
+        { [ -s "$DOCKER_DAEMON_JSON" ] && cat "$DOCKER_DAEMON_JSON" || echo '{}'; } \
+            | jq --arg m "$ARVAN_DOCKER_MIRROR" '.["registry-mirrors"] = ([$m] + ((.["registry-mirrors"] // []) - [$m]))' > "$tmp"
+        done_text="Docker Hub images are now pulled through $ARVAN_DOCKER_MIRROR"
+    fi
+
+    if command -v dockerd >/dev/null 2>&1 && dockerd --help 2>&1 | grep -q -- '--validate' \
+            && ! dockerd --validate --config-file "$tmp" >/dev/null 2>&1; then
+        red_msg "The new $DOCKER_DAEMON_JSON is rejected by Docker. No changes made."
+        echo
+        rm -f "$tmp"
+        return 1
+    fi
+    cat "$tmp" > "$DOCKER_DAEMON_JSON"
+    chmod 644 "$DOCKER_DAEMON_JSON"
+    rm -f "$tmp"
+
+    ## registry-mirrors can be reloaded live, so running containers are not restarted.
+    if systemctl is-active --quiet docker; then
+        systemctl reload docker
+        sleep 1
+        yellow_msg "Docker mirrors: $(docker info --format '{{range .RegistryConfig.Mirrors}}{{.}} {{end}}' 2>/dev/null)"
+    else
+        yellow_msg 'Docker is not running. The setting is used when it starts.'
+    fi
+
+    echo
+    green_msg "$done_text"
+    echo
+    sleep 0.5
+}
+
+
+## Put back the APT sources saved by apt_mirror_arvan.
+restore_apt_sources() {
+    . /etc/os-release
+    rm -f "/etc/apt/sources.list.d/$ID.sources"
+    [ -d "$APT_BACKUP_DIR/etc/apt" ] && cp -a "$APT_BACKUP_DIR"/etc/apt/. /etc/apt/
+    rm -rf "$APT_BACKUP_DIR"
+}
+
+
+# Change the APT repositories to the ArvanCloud mirror (fast inside Iran, works when the official mirrors are filtered).
+# https://www.arvancloud.ir/en/dev/linux-repository
+# Running it again restores the original repositories.
+apt_mirror_arvan() {
+    echo
+    yellow_msg 'Changing the APT repositories to the ArvanCloud mirror...'
+    echo
+    sleep 0.5
+
+    . /etc/os-release
+    local main_file="/etc/apt/sources.list.d/$ID.sources" base="https://mirror.arvancloud.ir"
+    local arch archive security components keyring suite suites=() security_ok=0 log
+
+    if grep -qsF 'linux-optimizer: ArvanCloud mirror' "$main_file"; then
+        green_msg 'APT already uses the ArvanCloud mirror.'
+        echo
+        if [ -d "$APT_BACKUP_DIR" ] && ask_yes_no 'Restore the original APT repositories?'; then
+            restore_apt_sources
+            apt_get update
+            echo
+            green_msg 'Original APT repositories restored.'
+            echo
+        fi
+        return 0
+    fi
+
+    arch=$(dpkg --print-architecture)
+    case "$ID" in
+        ubuntu)
+            if [ "$arch" != "amd64" ] && [ "$arch" != "i386" ]; then
+                red_msg "ArvanCloud only mirrors Ubuntu for amd64 ($arch needs ubuntu-ports). Skipping."
+                echo
+                return 1
+            fi
+            archive="ubuntu"
+            security="ubuntu"
+            components="main restricted universe multiverse"
+            keyring="/usr/share/keyrings/ubuntu-archive-keyring.gpg"
+            ;;
+        debian)
+            archive="debian"
+            security="debian-security"
+            components="main contrib non-free"
+            [ "${VERSION_ID:-99}" -ge 12 ] 2>/dev/null && components+=" non-free-firmware"
+            keyring="/usr/share/keyrings/debian-archive-keyring.gpg"
+            ;;
+    esac
+
+    ## Only use the suites the mirror really has.
+    if ! curl -fsSL --max-time 20 -o /dev/null "$base/$archive/dists/$VERSION_CODENAME/Release"; then
+        red_msg "The ArvanCloud mirror has no '$VERSION_CODENAME' or is unreachable. Skipping."
+        echo
+        return 1
+    fi
+    suites=("$VERSION_CODENAME")
+    for suite in "$VERSION_CODENAME-updates" "$VERSION_CODENAME-backports"; do
+        curl -fsSL --max-time 20 -o /dev/null "$base/$archive/dists/$suite/Release" && suites+=("$suite")
+    done
+    curl -fsSL --max-time 20 -o /dev/null "$base/$security/dists/$VERSION_CODENAME-security/Release" && security_ok=1
+    [ "$security_ok" = 0 ] && red_msg "The mirror has no $VERSION_CODENAME-security. Security updates will be missing!"
+
+    ## Save the original sources, so they can be restored.
+    rm -rf "$APT_BACKUP_DIR"
+    mkdir -p "$APT_BACKUP_DIR"
+    [ -e /etc/apt/sources.list ] && cp -a --parents /etc/apt/sources.list "$APT_BACKUP_DIR"
+    [ -e "$main_file" ] && cp -a --parents "$main_file" "$APT_BACKUP_DIR"
+    yellow_msg "Original APT sources saved. Directory: $APT_BACKUP_DIR"
+
+    {
+        echo "# linux-optimizer: ArvanCloud mirror. Run the script again to restore the original repositories."
+        echo "# Originals are saved in $APT_BACKUP_DIR"
+        echo
+        echo "Types: deb"
+        echo "URIs: $base/$archive/"
+        echo "Suites: ${suites[*]}"
+        echo "Components: $components"
+        [ -f "$keyring" ] && echo "Signed-By: $keyring"
+        if [ "$security_ok" = 1 ]; then
+            echo
+            echo "Types: deb"
+            echo "URIs: $base/$security/"
+            echo "Suites: $VERSION_CODENAME-security"
+            echo "Components: $components"
+            [ -f "$keyring" ] && echo "Signed-By: $keyring"
+        fi
+    } > "$main_file"
+    [ -e /etc/apt/sources.list ] && echo "# Moved to $main_file by linux-optimizer." > /etc/apt/sources.list
+
+    ## Roll back if the mirror itself fails (other repositories failing doesn't count).
+    log=$(mktemp)
+    apt_get update 2>&1 | tee "$log"
+    if grep -qE '^(Err:|E:|W: GPG error).*mirror\.arvancloud\.ir' "$log"; then
+        rm -f "$log"
+        restore_apt_sources
+        echo
+        red_msg 'APT could not use the ArvanCloud mirror. Original repositories restored.'
+        echo
+        return 1
+    fi
+    rm -f "$log"
+
+    echo
+    green_msg "APT now uses $base ($archive: ${suites[*]}$([ "$security_ok" = 1 ] && echo " + $VERSION_CODENAME-security"))."
+    echo
+    sleep 0.5
+}
+
+
 # Show the current state of the server
 show_status() {
     . /etc/os-release
@@ -1128,6 +1417,9 @@ show_status() {
     echo "  UFW:                $(ufw status 2>/dev/null | head -1 | awk '{print $2}')"
     echo "  Fail2ban:           $(systemctl is-active fail2ban 2>/dev/null)"
     echo "  Nginx:              $(nginx -v 2>&1 | sed -n 's/^nginx version: //p')"
+    echo "  Docker:             $(docker --version 2>/dev/null | sed 's/^Docker version //; s/,.*//')"
+    echo "  Docker Hub mirror:  $(jq -r '(.["registry-mirrors"] // []) | join(" ")' "$DOCKER_DAEMON_JSON" 2>/dev/null)"
+    echo "  APT mirror:         $(grep -qsF 'linux-optimizer: ArvanCloud mirror' "/etc/apt/sources.list.d/$ID.sources" && echo ArvanCloud || echo default)"
     echo
 }
 
@@ -1141,7 +1433,7 @@ show_menu() {
     echo
     green_msg '2  - Install XanMod Kernel.'
     echo
-    green_msg '3  - Complete Update + Useful Packages + Make SWAP + Optimize Network, SSH & System Limits + UFW'
+    green_msg '3  - Complete Update + Useful Packages + Make SWAP + Optimize Network, SSH & System Limits + UFW + Journal 100MB'
     green_msg '4  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits + UFW'
     green_msg '5  - Complete Update + Make SWAP + Optimize Network, SSH & System Limits'
     echo
@@ -1160,6 +1452,10 @@ show_menu() {
     echo
     green_msg '16 - Remove Snapd + ALL snap packages.'
     green_msg '17 - Remove Unneeded Packages (apport, landscape, lxd-installer, modemmanager, ...).'
+    echo
+    green_msg '18 - Install Docker + Docker Compose.'
+    green_msg '19 - Use the ArvanCloud mirror for Docker Hub images. (Run again to remove)'
+    green_msg '20 - Change the APT repositories to the ArvanCloud mirror. (Run again to restore)'
     echo
     green_msg 's  - Show Server Status.'
     red_msg 'q  - Exit.'
@@ -1209,7 +1505,7 @@ main() {
         3)
             ask_remove_snap
 
-            complete_update
+            complete_update 100
             sleep 0.5
 
             [ "$REMOVE_SNAP" = 1 ] && remove_snapd
@@ -1364,6 +1660,24 @@ main() {
             ;;
         17)
             remove_bloat
+            sleep 0.5
+
+            done_msg
+            ;;
+        18)
+            install_docker
+            sleep 0.5
+
+            done_msg
+            ;;
+        19)
+            docker_mirror_arvan
+            sleep 0.5
+
+            done_msg
+            ;;
+        20)
+            apt_mirror_arvan
             sleep 0.5
 
             done_msg

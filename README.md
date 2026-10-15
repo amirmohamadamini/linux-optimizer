@@ -26,7 +26,7 @@
     - _AutoRemove_
     - _AutoClean_
     - _Clean_
-    - _Limit the systemd journal to 200MB_
+    - _Limit the systemd journal to 200MB (100MB with menu option 3)_
 
 
 2. Disable Terminal Ads _(Only on Ubuntu)_.
@@ -111,7 +111,28 @@
     - `apport`, `whoopsie`, `popularity-contest`, `landscape-common`, `lxd-installer`, `modemmanager`, `pollinate`.
 
 
-15. Show Server Status (`s` in the menu): OS, kernel, virtualization, RAM, SWAP, BBR, limits, UFW, Fail2ban, Nginx.
+15. Install `Docker` + `Docker Compose`:
+    - From Docker's official repository (`docker-ce`, `buildx` & `compose` plugins). The signing key is checked against the official fingerprint.
+    - `download.docker.com` blocks Iranian servers, so the ArvanCloud copy is tried next. If neither works, the distro's `docker.io` package can be installed instead _(Ubuntu & Debian)_.
+    - Ports published with `docker run -p` bypass `UFW`. Use `-p 127.0.0.1:PORT:PORT` for ports that should stay private.
+
+
+16. Use the [ArvanCloud](https://www.arvancloud.ir) mirror for Docker Hub images (`https://docker.arvancloud.ir`):
+    - Docker Hub blocks Iranian servers. With the mirror, `docker pull nginx` works as usual.
+    - Added to `registry-mirrors` in `/etc/docker/daemon.json`. Your other settings are kept. Original file is backed up at `/etc/docker/daemon.json.bak`.
+    - Docker is reloaded, not restarted, so running containers keep running.
+    - **Run the option again to remove the mirror.**
+
+
+17. Change the APT repositories to the [ArvanCloud mirror](https://www.arvancloud.ir/en/dev/linux-repository) _(Ubuntu & Debian)_:
+    - Faster inside Iran, and works when the official mirrors are filtered.
+    - Written to `/etc/apt/sources.list.d/ubuntu.sources` (or `debian.sources`), including security updates. Other repositories (Nginx, Docker, XanMod) are not touched.
+    - Original sources are backed up at `/etc/apt/linux-optimizer-sources-backup`. If `apt update` fails on the mirror, they are restored automatically.
+    - Ubuntu: `amd64` only (ArvanCloud has no `ubuntu-ports` for ARM).
+    - **Run the option again to restore the original repositories.**
+
+
+18. Show Server Status (`s` in the menu): OS, kernel, virtualization, RAM, SWAP, BBR, limits, UFW, Fail2ban, Nginx, Docker, mirrors.
 
     
 **Reboot at the end is recommended.**
@@ -143,11 +164,6 @@ sudo -i
 wget "https://raw.githubusercontent.com/amirmohamadamini/linux-optimizer/refs/heads/main/linux-optimizer.sh" -O linux-optimizer.sh && chmod +x linux-optimizer.sh && bash linux-optimizer.sh 
 ```
 
-
-#### Or clone the repo and run it locally (useful where GitHub raw files are filtered):
-```
-git clone https://github.com/amirmohamadamini/linux-optimizer.git && bash linux-optimizer/linux-optimizer.sh
-```
 
 
 ## Menu Image
